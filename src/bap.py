@@ -5,8 +5,6 @@ import scipy.sparse
 from scipy.ndimage import convolve1d
 from scipy.optimize import minimize
 
-# Define our various variables
-
 # Domain 
 L = 30
 dx = 0.1
@@ -15,7 +13,7 @@ N = x.shape[0]
 
 # Problem parameters
 eps = 5
-alpha = 8
+alpha = 4
 c0 = 0.0625
 p = int(np.round(eps/dx))
 
@@ -65,10 +63,21 @@ def objective_fun(y):
     u_ent[um] = u[um]*np.log(u[um])
     v_ent[vm] = v[vm]*np.log(v[vm])
 
-
     return dx*np.sum(u_ent + v_ent + 
             alpha*(1 - u - v) * convolve_with_kappa(u + v))
 
+def nzlog(x):
+    y = np.full(x.shape, -1000)
+    y[x > 0] = np.log(x[x > 0])
+    return y
+
+def grad_fun(y):
+    u = y[:N]
+    v = y[N:]
+
+    
+    foo = alpha*convolve_with_kappa(1 - 2*u - 2*v)
+    return np.concatenate((1 + nzlog(u) + foo, 1 + nzlog(v) + foo))
 
 # Equality constraint
 A_eq = np.ones((1, 2*N))
@@ -95,7 +104,6 @@ c_nn = {'type':'ineq', 'fun':fun_nn}
 
 res = minimize(objective_fun, y0, constraints=(c_eq, c_ineq, c_nn))
 
-
 y = res.x
 u = y[:N]
 v = y[N:]
@@ -104,14 +112,3 @@ v = y[N:]
 plt.figure()
 plot_solution(u, v)
 plt.show()
-
-
-print(np.sum(y0))
-print(m/dx + 2*N*c0)
-
-#plt.figure()
-#plt.plot(x_ker, kappa)
-#plt.show()
-
-
-
