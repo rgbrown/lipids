@@ -13,7 +13,7 @@ N = x.shape[0]
 
 # Problem parameters
 eps = 5
-alpha = 4
+alpha = 8
 c0 = 0.0625
 p = int(np.round(eps/dx))
 
@@ -82,9 +82,12 @@ def grad_fun(y):
 # Equality constraint
 A_eq = np.ones((1, 2*N))
 rhs_eq = m/dx + 2*N*c0
+
 def fun_eq(y):
     return A_eq.dot(y) - rhs_eq
 c_eq = {'type':'eq', 'fun':fun_eq}
+c_eq_obj = scipy.optimize.LinearConstraint(A_eq, lb=rhs_eq, ub=rhs_eq)
+
 
 # Inequality constraint
 w = np.arange(N)
@@ -96,13 +99,20 @@ A_ineq = scipy.sparse.coo_matrix((data.flatten(), (i.flatten(),
 def fun_ineq(y):
     return 1 - A_ineq.dot(y);
 c_ineq = {'type':'ineq', 'fun':fun_ineq}
+c_ineq_obj = scipy.optimize.LinearConstraint(A_ineq, -np.inf, 1)
+
 
 # Non-negative constraint
 def fun_nn(y):
     return y
 c_nn = {'type':'ineq', 'fun':fun_nn}
+c_nn_obj = scipy.optimize.LinearConstraint(scipy.sparse.eye(2*N), 0, np.inf)
 
-res = minimize(objective_fun, y0, constraints=(c_eq, c_ineq, c_nn))
+constraints_sqspy = (c_eq, c_ineq, c_nn)
+constraints_trust = (c_eq_obj, c_ineq_obj, c_nn_obj)
+
+res = minimize(objective_fun, y0, method='trust-constr',
+        constraints=constraints_trust)
 
 y = res.x
 u = y[:N]
