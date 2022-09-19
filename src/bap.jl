@@ -55,8 +55,8 @@ function rhs(y, p, t)
     mu = u .+ tauminus(u) .+ v .+ tauplus(v) .- 1
     kuv = convolvewithkappa(u .+ v)
 
-    uti = -log.(u) .+ 2*alpha*kuv .- K ./ (mu.^2) .- K ./ (tauplus(mu).^2)
-    vti = -log.(v) .+ 2*alpha*kuv .- K ./ (mu.^2) .- K ./ (tauminus(mu).^2)
+    uti = -log.(u) .+ 2*alpha*kuv .- K ./ (mu.^2) .- K ./ (tauplus(mu).^2) + K./(u.^2)
+    vti = -log.(v) .+ 2*alpha*kuv .- K ./ (mu.^2) .- K ./ (tauminus(mu).^2) + K./(v.^2)
 
     lam = -(sum(uti) + sum(vti))/(2*N)
 
