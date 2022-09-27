@@ -76,7 +76,6 @@ function lipidbilayer(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, 
         end
     end
 
-    projectedgradient(f, df, proj, y0)
 end
 
 
@@ -151,18 +150,23 @@ end
 
 Project a vector `xh` onto the feasible region. 
 
-`x0`, `S` : Initial feasible solution and binding constraints.
+`x0`, `B` : Initial feasible solution and binding constraints.
 If `x0` is not provided, any provided `S` is ignored.
 
-Returns `x`, `S`, the solution along with the active set of binding constraints
+Returns `x`, `B`, the solution along with the active set of binding constraints
 
 """
 function projectfeasible(xh, At_full, b_full, d; x0=[], S=Int[], maxits=1000)
-    debug = false
-    # Create feasible initial condition, if required. Requires d to be
-    # small enough
+
+    # Create feasible initial condition, if not provided
+    # (specific to lipid problem)
+    # Requires d to be small enough
     n = length(xh)
     if isempty(x0)
+        if 4*d/n > 1
+            error("Unable to create feasible initial condition. Maybe mass
+                  is too small")
+        end
         x0 = fill(d/n, n)
         S = Int[]
     end
@@ -181,19 +185,16 @@ function projectfeasible(xh, At_full, b_full, d; x0=[], S=Int[], maxits=1000)
         # Check for feasibility of xeqp
         Axeqp = At_full'*xeqp
     
-        # setdiff required becuase existing ones might not hold exactly to
-        # machine precision
+        # Find infeasible constraints among those not in S
         infeasible = setdiff(findall(Axeqp .> b_full), S)
     
         if isempty(infeasible) # i.e. if solution is feasible
-            debug && println("feasible") 
             ineg = findfirst(z->z < 0, nu)
             if isnothing(ineg) # no negative Lagrange multipliers -> optimal
                 x[:] = xeqp
                 break
             else 
                 # Remove from S a constraint with negative nu value
-                debug && println("removing constraint") 
                 deleteat!(S, ineg)
     
                 # Reset x to xeqp
@@ -201,7 +202,6 @@ function projectfeasible(xh, At_full, b_full, d; x0=[], S=Int[], maxits=1000)
                 Ax[:] = At_full'*x
             end
         else
-            debug && println("infeasible")
             # Move from x toward x_eqp until we hit first constraint
             # x + t(x_eqp - x)
             # Find t to make each infeasible inequality at x_eqp equality,
@@ -210,7 +210,6 @@ function projectfeasible(xh, At_full, b_full, d; x0=[], S=Int[], maxits=1000)
                              (Axeqp[infeasible] - Ax[infeasible]))
 
             # Add corresponding constraint, update x and Ax
-            debug && println("Adding constraint ", infeasible[idx])
             append!(S, infeasible[idx])
             x += t*(xeqp - x)
             Ax[:] = At_full'*x
@@ -218,10 +217,6 @@ function projectfeasible(xh, At_full, b_full, d; x0=[], S=Int[], maxits=1000)
     end
     return x, S
 end
-
-
-
-
 
 
 """
