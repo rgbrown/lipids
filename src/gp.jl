@@ -1,12 +1,14 @@
+module Gp
+export initialise, projectgradient, findconstraint
 using SparseArrays
 using LinearAlgebra
 import DSP
 using Plots
 
 """ 
-    lipidbilayer(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, sigma=5)
+    initialise(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, sigma=5)
 
-Solve for lipid bilayer by gradient projection.
+Initialise problem 
 
 `L`:                Periodic domain ``[-L, L]``
 `dx`:               Domain spacing. Make sure dx divides L
@@ -15,18 +17,27 @@ Solve for lipid bilayer by gradient projection.
 `m`:                Total lipid mass
 `minconcentration`: Minimum concentration of lipid. A small value instead
                     of 0 prevents log(0) ever being called
+
+Returns:
+    `A`, `b`        Inequality constraints. A'x <= b
+    `C`, `d`        Equality constraints. C'x = d
+    `f`             Objective function
+    `df`            Gradient function
+    `y0`            Feasible initial condition
+    `B`             Initial binding inequality constraints
 """
-function lipidbilayer(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, sigma=5, uc=0, vc=0)
+function initialise(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, sigma=5, uc=0, vc=0)
     x = -L:dx:L
     N = length(x)
-    n = 2*x
+    n = 2*N
 
     k = Int(round(lipidlength/dx))
     # Right hand side for sum(u + v) = d
+    C = ones(n, 1)
     d = m/dx + 2*N*c0
 
     # Define inequality constraint matrix and RHS
-    At_full, b_full = inequalityconstraints(N, k, minconcentration)
+    A, b = inequalityconstraints(N, k, minconcentration)
 
     # Construct kernel
     xker = -10:dx:10
@@ -50,38 +61,97 @@ function lipidbilayer(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, 
                 alpha*(1 .- (u + v)).*convwrap(u + v, K))*dx
     end
 
-    function proj(y, y0=[], S=Int[])
-        y, S = projectfeasible(y, At_full, b_full, d, x0=y0, S=S)
-        return y, S
-    end
-
     # Initial conditions
     u0 = 1/(sigma*sqrt(2*pi))*exp.(-0.5*(x .- uc).^2/sigma^2) 
     v0 = 1/(sigma*sqrt(2*pi))*exp.(-0.5*(x .- vc).^2/sigma^2) 
     u0 = m/(2*sum(u0)*dx)*u0 .+ c0
     v0 = m/(2*sum(v0)*dx)*v0 .+ c0
     y0 = [u0; v0]
+    B = Int[]
 
-    function plotuv(y, keep=false)
-        u = @view y[1:N]
-        v = @view y[N+1:end]
-        tails = u + v
-        heads = circshift(u, -k) + circshift(v, k)
-        if keep
-            plot!(x, tails)
-            plot!(x, heads)
-        else
-            plot(x, tails, label="tails")
-            plot!(x, heads, label="heads")
-        end
+    return A, b, C, d, f, df, y0, B, x
+end        
+
+"""
+    projectgradient(g, A, b)
+
+    Find search direction by projecting g onto manifold orthogonal to
+    columns of A, where `A'*x = b` are binding constraints
+
+    returns
+    `d`     Projected gradient direction
+    
+"""
+function projectgradient(g, A, b)
+    n, q = size(A)
+    if q == 0
+        d = copy(g)
+    else
+        # Compute sparse QR of A
+        F = qr(A)
+        Qhat = sparse(F.Q[invperm(F.prow), 1:q])
+        d = g - Qhat*Qhat'*g
     end
-
+    return d/norm(d)
 end
 
+"""
+    findconstraint(x, d, A, b)
+
+    Find max t such that x + t*d is feasible
+    A'x <= b are inequality constraints. Direction d automatically
+    satisfies binding equality constraints
+
+    Returns
+    t, index:   maximum t, and index (col of A) that is hit first
+"""
+function findconstraint(x, d, A, b)
+    tvec = (b .- A'*x) ./ (A'*d)
+    tvec[tvec .< 0] .= Inf
+    t, index = findmin(tvec)
+    return t, index
+end
+
+function linesearch(x, p, fx, dfx, f, alpha_0=1.0; tau=0.5, c=0.5,
+                            maxits=10)
+    m = dot(dfx, p)
+    println(m)
+    t = -c*m
+    alpha = alpha_0
+    converged = false
+    println(fx)
+    for j = 0:maxits
+        println(fx - f(x + alpha*p), ' ', alpha*t)
+        if fx - f(x + alpha*p) ≥ alpha*t
+            converged = true
+            break
+        else
+            alpha *= tau
+        end
+    end
+    if !converged
+        error("Linesearch failed to converge")
+    end
+    return alpha
+end
+
+function plotuv(x, y, k, keep=false)
+    N = length(y) ÷ 2
+    u = @view y[1:N]
+    v = @view y[N+1:end]
+    tails = u + v
+    heads = circshift(u, -k) + circshift(v, k)
+    if keep
+        plot!(x, tails)
+        plot!(x, heads)
+    else
+        plot(x, tails, label="tails")
+        plot!(x, heads, label="heads")
+    end
+end
 
 function projectedgradient(fun, gradfun, projfun, x, alpha=0.5, beta=0.8, S=[])
     # Assuming x is feasible
-
     # Choose a descent direction
     t = 1
     for k = 1:100
@@ -97,7 +167,7 @@ function projectedgradient(fun, gradfun, projfun, x, alpha=0.5, beta=0.8, S=[])
       for j = 1:100
           xnew, S = projfun(x + t*dx)
           fnew = fun(xnew)
-          if fnew < f + alpha*t*foo:
+          if fnew < f + alpha*t*foo
               x = x + t*dx
               break
           end
@@ -280,4 +350,4 @@ function inequalityconstraints(N::Int, k, minconcentration)
     return At_full, b_full
 end
 
-
+end
