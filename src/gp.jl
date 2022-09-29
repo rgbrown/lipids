@@ -2,8 +2,62 @@ module Gp
 export initialise, projectgradient, findconstraint
 using SparseArrays
 using LinearAlgebra
+using Printf
 import DSP
 using Plots
+
+function descentstep!(y, B, N, A, b, C, d, f, df; debug=false, tol=1e-8, αmax=1.0, maxits=1000)
+    # Find descent direction
+    g = df(y)
+    Pg = projectgradient(g, [A[:, B] C], [b[B]; d])
+    if !isempty(B)
+        # Compute Lagrange multipliers
+        ν = -(A[:, B]'*A[:, B])\(A[:, B]'*g)
+        νmin, index = findmin(ν)
+        γ = -min(0, νmin)
+        if norm(Pg) ≤ γ
+            debug && @printf("  descentstep: constraint %d removed\n", B[index])
+            push!(N, B[index])
+            deleteat!(B, index)
+            Pg = projectgradient(g, [A[:, B] C], [b[B]; d])
+        end
+    end
+    dir = -Pg
+
+    debug && @printf("  descentstep: norm(d)/norm(df) = %g\n",
+                     norm(dir)/norm(g))
+
+    if norm(dir)/norm(g) < tol
+        # Compute Lagrange multipliers
+        ν = -(A[:, B]'*A[:, B])\(A[:, B]'*g);
+        if all(ν .> 0)
+            debug && @printf("Optimal!")
+            return y
+        else
+            ν_min, index = findmin(ν)
+            index = findfirst(x -> x < 0, ν)
+            debug && @printf("  descentstep: constraint %d removed\n", B[index])
+            push!(N, B[index])
+            deleteat!(B, index)
+            return y
+        end
+    end
+    α0, index = findconstraint(y, dir, A[:,N], b[N])
+    if α0 > 0
+        α = linesearch(y, dir, f(y), g, f, α0, maxits=maxits, c=0.5, debug=debug)
+        α = min(αmax, α)
+    else 
+        α = α0
+    end
+    if α == α0
+        debug && @printf("  linesearch: constraint %d added\n", N[index])
+        debug && @printf("  α = %f\n", α)
+        push!(B, N[index])
+        deleteat!(N, index)
+    end
+    y += α*dir
+    return y
+end
 
 """ 
     initialise(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, sigma=5)
@@ -42,6 +96,7 @@ function initialise(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, si
     # Construct kernel
     xker = -10:dx:10
     K = kappa(xker)
+    sumK = sum(K)
     alpha = 1
 
     function df(y)
@@ -49,9 +104,9 @@ function initialise(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, si
         u = @view y[1:N]
         v = @view y[N+1:end]
         kuv = convwrap(u + v, K)
-        dy[1:N] = log.(u) - 2*alpha*kuv
-        dy[N+1:end] = log.(v) - 2*alpha*kuv
-        return dy
+        dy[1:N] = sumK .+ alpha .+ log.(u) - 2*alpha*kuv
+        dy[N+1:end] = sumK .+ log.(v) .+ alpha - 2*alpha*kuv
+        return dy*dx
     end
 
     function f(y)
@@ -59,6 +114,20 @@ function initialise(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, si
         v = @view y[N+1:end]
         F = sum(u.*log.(u) + v.*log.(v) + 
                 alpha*(1 .- (u + v)).*convwrap(u + v, K))*dx
+    end
+
+    function plotuv(y, keep=false)
+        u = @view y[1:N]
+        v = @view y[N+1:end]
+        tails = u + v
+        heads = circshift(u, -k) + circshift(v, k)
+        if keep
+            plot!(x, tails)
+            plot!(x, heads)
+        else
+            plot(x, tails, label="tails")
+            plot!(x, heads, label="heads")
+        end
     end
 
     # Initial conditions
@@ -69,7 +138,7 @@ function initialise(L, dx, lipidlength, c0, m; minconcentration=0.0, alpha=1, si
     y0 = [u0; v0]
     B = Int[]
 
-    return A, b, C, d, f, df, y0, B, x
+    return A, b, C, d, f, df, y0, B, plotuv
 end        
 
 """
@@ -92,63 +161,52 @@ function projectgradient(g, A, b)
         Qhat = sparse(F.Q[invperm(F.prow), 1:q])
         d = g - Qhat*Qhat'*g
     end
-    return d/norm(d)
+    return d
 end
 
 """
     findconstraint(x, d, A, b)
 
-    Find max t such that x + t*d is feasible
-    A'x <= b are inequality constraints. Direction d automatically
-    satisfies binding equality constraints
+    Find max t such that x + t*d is feasible A'x <= b are non-binding
+    inequality constraints. Direction d automatically satisfies binding
+    equality constraints
 
     Returns
     t, index:   maximum t, and index (col of A) that is hit first
 """
-function findconstraint(x, d, A, b)
-    tvec = (b .- A'*x) ./ (A'*d)
-    tvec[tvec .< 0] .= Inf
-    t, index = findmin(tvec)
-    return t, index
+function findconstraint(x, d, A, b, tol=1e-15)
+    thresh = tol*norm(x)/norm(d)
+    αvec = (b .- A'*x) ./ (A'*d)
+    αvec[αvec .< -thresh] .= Inf
+    α, index = findmin(αvec)
+    if α < thresh
+        α = 0.0
+    end
+    return α, index
 end
 
-function linesearch(x, p, fx, dfx, f, alpha_0=1.0; tau=0.5, c=0.5,
-                            maxits=10)
+function linesearch(x, p, fx, dfx, f, α0=1.0; tau=0.5, c=0.5,
+                            maxits=10, debug=true)
     m = dot(dfx, p)
-    println(m)
+    debug && @printf("  m: %g\n", m)
     t = -c*m
-    alpha = alpha_0
+    α = α0
+    debug && @printf("  linesearch: α0 = %g\n", α)
     converged = false
-    println(fx)
     for j = 0:maxits
-        println(fx - f(x + alpha*p), ' ', alpha*t)
-        if fx - f(x + alpha*p) ≥ alpha*t
+        if fx - f(x + α*p) ≥ α*t
             converged = true
             break
         else
-            alpha *= tau
+            α *= tau
         end
     end
     if !converged
         error("Linesearch failed to converge")
     end
-    return alpha
+    return α
 end
 
-function plotuv(x, y, k, keep=false)
-    N = length(y) ÷ 2
-    u = @view y[1:N]
-    v = @view y[N+1:end]
-    tails = u + v
-    heads = circshift(u, -k) + circshift(v, k)
-    if keep
-        plot!(x, tails)
-        plot!(x, heads)
-    else
-        plot(x, tails, label="tails")
-        plot!(x, heads, label="heads")
-    end
-end
 
 function projectedgradient(fun, gradfun, projfun, x, alpha=0.5, beta=0.8, S=[])
     # Assuming x is feasible
