@@ -21,14 +21,15 @@ function foo()
     y = copy(y0)
     plotuv(y, true)
     debug = true
-    for j = 1:4000
+    for j = 1:1700
         debug && @printf("iteration %d: f(y) = %f\n", j, f(y)) 
         y = Gp.descentstep!(y, B, N, A, b, C, d, f, df, debug=true,
-                            tol=1e-11, αmax=0.5, maxits=100)
+                            tol=1e-11, αmax=0.1, maxits=100)
     end
     return A, b, C, d, f, df, y0, y, B, N, plotuv
 end
 A, b, C, d, f, df, y0, y, B, N, plotuv = foo()
+plotuv(y)
 
 
 

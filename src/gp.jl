@@ -19,32 +19,14 @@ function descentstep!(y, B, N, A, b, C, d, f, df; debug=false, tol=1e-8, αmax=1
             debug && @printf("  descentstep: constraint %d removed\n", B[index])
             push!(N, B[index])
             deleteat!(B, index)
-            Pg = projectgradient(g, [A[:, B] C], [b[B]; d])
+            return y
         end
     end
     dir = -Pg
-
-    debug && @printf("  descentstep: norm(d)/norm(df) = %g\n",
-                     norm(dir)/norm(g))
-
-    if norm(dir)/norm(g) < tol
-        # Compute Lagrange multipliers
-        ν = -(A[:, B]'*A[:, B])\(A[:, B]'*g);
-        if all(ν .> 0)
-            debug && @printf("Optimal!")
-            return y
-        else
-            ν_min, index = findmin(ν)
-            index = findfirst(x -> x < 0, ν)
-            debug && @printf("  descentstep: constraint %d removed\n", B[index])
-            push!(N, B[index])
-            deleteat!(B, index)
-            return y
-        end
-    end
     α0, index = findconstraint(y, dir, A[:,N], b[N])
     if α0 > 0
-        α = linesearch(y, dir, f(y), g, f, α0, maxits=maxits, c=0.5, debug=debug)
+        α = linesearch(y, dir, f(y), g, f, α0, 
+                       maxits=maxits, c=0.5, debug=debug)
         α = min(αmax, α)
     else 
         α = α0
@@ -177,9 +159,9 @@ end
 function findconstraint(x, d, A, b, tol=1e-15)
     thresh = tol*norm(x)/norm(d)
     αvec = (b .- A'*x) ./ (A'*d)
-    αvec[αvec .< -thresh] .= Inf
+    αvec[αvec .< -tol] .= Inf
     α, index = findmin(αvec)
-    if α < thresh
+    if α < tol
         α = 0.0
     end
     return α, index
