@@ -1,3 +1,5 @@
+module Lipids
+export lipidbilayer, plotuv
 using Ipopt
 using JuMP
 using Plots
@@ -5,29 +7,62 @@ using Plots
 function kappa(s)
     0.5*exp.(-abs.(s))
 end
-function plotuv(x, u, v, p, keep=false)
+
+"""
+    plotuv(x, u, v, p; keep=false, title="")
+
+    Plot the head and tail distributions from the left and right oriented lipids u, v with length p indices
+"""
+function plotuv(x, u, v, p; keep=false, title="")
     tails = u + v
     heads = circshift(u, -p) + circshift(v, p)
     if keep
-        plot!(x, tails)
+        plot!(x, tails, title)
         plot!(x, heads)
     else
-        plot(x, tails, label="tails")
+        plot(x, tails, label="tails", title=title, ylim=(0, 1))
         plot!(x, heads, label="heads")
     end
 end
-function lipidsjump()
-    L = 30
-    dx = 0.2 
+
+"""
+    lipidbilayer(L, dx, lipidlength, c0, m; 
+    cmin=1e-5, alpha=1,sigma= 5, uc = 0, vc = 0)
+
+Initialise problem 
+
+`L`:                Periodic domain ``[-L, L]``
+`dx`:               Domain spacing. Make sure dx divides L
+`lipidlength`:      Length of lipid molecule (multiple of dx)
+`c0`:               Background concentration
+`m`:                Total lipid mass
+`cmin`:              Minimum concentration of lipid. A small value instead
+                    of 0 prevents log(0) ever being called
+`sigma`             Standard deviation of initial populations
+`uc`                Centre of initial u tail distribution
+`vc`                Centre of initial v tail distribution
+
+Returns:
+    `A`, `b`        Inequality constraints. A'x <= b
+    `C`, `d`        Equality constraints. C'x = d
+    `f`             Objective function
+    `df`            Gradient function
+    `y0`            Feasible initial condition
+    `B`             Initial binding inequality constraints
+"""
+function lipidbilayer(L, dx, lipidlength, c0, m; 
+    cmin=1e-5, alpha=1,sigma= 5, uc = 0, vc = 0)
+    # Set up problem domain
     N = Int(2*L/dx + 1)
     x = -L:dx:L
-    lipidlength = 5
-    cmin = 1e-6
     p = Int(lipidlength/dx)
-    c0 = 0.0625
-    m = 2 
     d = m/dx + 2*N*c0
-    alpha = 1
+
+    # Initial conditions, including normalisation step
+    u0 = 1/(sigma*sqrt(2*pi))*exp.(-0.5*(x .- uc).^2/sigma^2) 
+    v0 = 1/(sigma*sqrt(2*pi))*exp.(-0.5*(x .- vc).^2/sigma^2) 
+    u0 = m/(2*sum(u0)*dx)*u0 .+ c0
+    v0 = m/(2*sum(v0)*dx)*v0 .+ c0
 
     K = zeros(N, N)
     for i = 1:N
@@ -39,15 +74,10 @@ function lipidsjump()
         end
     end
 
-
-
-
     model = Model(Ipopt.Optimizer)
-    #model = Model(NLopt.Optimizer)
-    #set_optimizer_attribute(model, "algorithm", :LD_SLSQP)
     @variables(model, begin
-       u[1:N] >= cmin
-       v[1:N] >= cmin
+       u[i = 1:N] >= cmin 
+       v[i = 1:N] >= cmin 
     end)
     @NLobjective(
         model,
@@ -76,12 +106,6 @@ function lipidsjump()
     objective_value    = $(objective_value(model))
     """)
 
-    return x, p, value.(u)[:], value.(v)[:]
+    return x, p, value.(u)[:], value.(v)[:], u0, v0
 end
-
-x, p, u, v = lipidsjump()
-# Because I'm not specifying an initial condition, it tends to produce a bilayer
-# centred on the end of the domain (problem is invariant to cyclic shifts). so
-# shift it back to the middle
-s = length(u) ÷ 2
-plotuv(x, circshift(u, s), circshift(v, s), p)
+end
