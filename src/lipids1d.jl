@@ -1,3 +1,6 @@
+module Lipids
+export bp
+
 import FFTW
 using SparseArrays
 using LinearAlgebra
@@ -12,7 +15,7 @@ function bp(L, dx, lipidlength, c0, m;
 
     k = Int(round(lipidlength/dx))
 
-    # Equality constraint matrices for Cx = d
+    # Equality constraint matrices for C'x = d
     C = ones(n, 1)
     d = m/dx + 2*N*c0
 
@@ -83,7 +86,7 @@ function bp(L, dx, lipidlength, c0, m;
     v0 = m/(2*sum(v0)*dx)*v0 .+ c0
     y0 = [u0; v0]
 
-    return A, b, C, d, f, df, y0, plotuv
+    return A, b, C, d, fbp, dfbp, y0, plotuv
 end
 
 """
@@ -138,6 +141,8 @@ function makeconv(w, n)
         @error "kernel length cannot be larger than n"
     else
         # circshift to make the centre of the kernel at index 1
+        # NB: another option would be to define our kernel function so that this
+        # happens automatically. Probably should be done, but leaving for now
         w = circshift(cat(w, zeros(n - nw), dims=1), -(nw ÷ 2))
     end
 
@@ -149,4 +154,5 @@ function makeconv(w, n)
         return R*(W.*(F*x))
     end
     return convwrap
+end
 end
