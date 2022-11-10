@@ -1,4 +1,4 @@
-include("lipidsjump.jl")
+include("lipids1d.jl")
 using .Lipids
 
 L = 30
