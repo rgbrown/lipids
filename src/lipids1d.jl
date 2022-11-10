@@ -4,8 +4,12 @@ using Ipopt
 using JuMP
 using Plots
 
-function kappa(s)
+function kappa_bap(s)
     0.5*exp.(-abs.(s))
+end
+
+function kappa_wht(s)
+    -0.5*exp.(-abs.(s))
 end
 
 """
@@ -27,7 +31,7 @@ end
 
 """
     lipidbilayer(L, dx, lipidlength, c0, m; 
-    cmin=1e-5, alpha=1,sigma= 5, uc = 0, vc = 0)
+    cmin=1e-5, alpha=1,sigma= 5, uc = 0, vc = 0, bilayermodel="bap")
 
 Initialise problem 
 
@@ -41,6 +45,7 @@ Initialise problem
 `sigma`             Standard deviation of initial populations
 `uc`                Centre of initial u tail distribution
 `vc`                Centre of initial v tail distribution
+`bilayermodel`      "bap" or "wht"
 
 Returns:
     `A`, `b`        Inequality constraints. A'x <= b
@@ -51,7 +56,7 @@ Returns:
     `B`             Initial binding inequality constraints
 """
 function lipidbilayer(L, dx, lipidlength, c0, m; 
-    cmin=1e-5, alpha=1,sigma= 5, uc = 0, vc = 0)
+    cmin=1e-5, alpha=1,sigma= 5, uc = 0, vc = 0, gamma=0.7, bilayermodel="bap")
     # Set up problem domain
     N = Int(2*L/dx + 1)
     x = -L:dx:L
@@ -65,30 +70,58 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
     v0 = m/(2*sum(v0)*dx)*v0 .+ c0
 
     K = zeros(N, N)
-    for i = 1:N
-        for j = 1:N
-            k = kappa(dx*(i - j))
-            if k > 1e-3 
-                K[i, j] = k
+    if bilayermodel == "bap"
+        for i = 1:N
+            for j = 1:N
+                k = kappa_bap(dx*(i - j))
+                if k > 1e-3 
+                    K[i, j] = k
+                end
             end
         end
+    end
+    if bilayermodel == "wht"
+        for i = 1:N
+            for j = 1:N
+                k = kappa_wht(dx*(i - j))
+                if k < -1e-3
+                    K[i, j] = k
+                end
+            end
+        end
+
     end
 
     model = Model(Ipopt.Optimizer)
     @variables(model, begin
-       u[i = 1:N] >= cmin 
-       v[i = 1:N] >= cmin 
+       u[i = 1:N] >= cmin
+       v[i = 1:N] >= cmin
     end)
-    @NLobjective(
-        model,
-        Min,
-        sum(
-            u[i]*log(u[i]) + v[i]*log(v[i]) + alpha*(1 - u[i] - v[i]) * 
-            sum(K[i, j]*(u[j] + v[j]) for j = 1:N if K[i, j] > 0.0)
-            for i in 1:N
-        ) * dx,
-    )
 
+    if bilayermodel == "bap"
+        @NLobjective(
+            model,
+            Min,
+            sum(
+                u[i]*log(u[i]) + v[i]*log(v[i]) + alpha*(1 - u[i] - v[i]) * 
+                sum(K[i, j]*(u[j] + v[j]) for j = 1:N if K[i, j] > 0.0)
+                for i in 1:N
+            ) * dx,
+        )
+    end
+    if bilayermodel == "wht"
+        @NLobjective(
+            model,
+            Min, 
+            sum(
+                u[i]*log(u[i]) + v[i]*log(v[i]) + 
+                alpha*(1 - u[i] - v[i] - u[mod(i + p - 1, N) + 1] - v[mod(i - p - 1, N) + 1]) * 
+                sum(K[i, j]*
+                (1 - u[j] - v[j] - (1 - gamma)*u[mod(j + p - 1, N) + 1] - (1 - gamma)*v[mod(j - p - 1, N) + 1]) for j in 1:N if K[i, j] < 0.0)
+                for i in 1:N
+            ) * dx,
+        )
+    end
     @constraint(
         model, 
         ceq, 
@@ -99,7 +132,7 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
         [i = 1:N], 
         u[i] + u[mod(i + p - 1, N) + 1] + v[i] + v[mod(i - p - 1, N) + 1] ≤ 1
     )
-    optimize!(model)
+    optimize!(model)  
     println("""
     termination_status = $(termination_status(model))
     primal_status      = $(primal_status(model))

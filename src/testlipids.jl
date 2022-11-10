@@ -1,18 +1,21 @@
 include("lipids1d.jl")
-using .Lipids
+import .Lipids
 
-L = 30
-c0 = 0.0
-m = 30 
-dx = 0.2
-lipidlength = 5
+L = 10
+c0 = 0.024
+m = 0.05*2*L 
+dx = 0.1 
+lipidlength = 2
 cmin = 1e-5
 sigma=5
+bilayermodel="wht"
+gamma = 1 
+alpha = 3*2/(1 + gamma)
+x, p, u, v, u0, v0 = Lipids.lipidbilayer(L, dx, lipidlength, c0, m, gamma=gamma, alpha=alpha, sigma=sigma, bilayermodel=bilayermodel)
 
-x, p, u, v, u0, v0 = lipidbilayer(L, dx, lipidlength, c0, m, sigma=sigma)
-# Because I'm not specifying an initial condition, it tends to produce a bilayer
-# centred on the end of the domain (problem is invariant to cyclic shifts). so
-# shift it back to the middle
+# Problem is invariant to cyclic shifts, and JuMP tends to produce a solution
+# that's centered at the first index, so do a shift of half the domain length to
+# put it back
 s = length(u) ÷ 2
 display(plotuv(x, u0, v0, p, title="initial conditions"))
 display(plotuv(x, circshift(u, s), circshift(v,s), p, title="m = $(m)"))
