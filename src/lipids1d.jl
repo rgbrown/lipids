@@ -20,12 +20,15 @@ end
 function plotuv(x, u, v, p; keep=false, title="")
     tails = u + v
     heads = circshift(u, -p) + circshift(v, p)
+    water = 1 .- heads - tails
     if keep
         plot!(x, tails, title)
         plot!(x, heads)
+        plot!(x, water)
     else
         plot(x, tails, label="tails", title=title, ylim=(0, 1))
         plot!(x, heads, label="heads")
+        plot!(x, water, label="water")
     end
 end
 
@@ -73,7 +76,7 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
     if bilayermodel == "bap"
         for i = 1:N
             for j = 1:N
-                k = kappa_bap(dx*(i - j))
+                k = kappa_bap(dx*min(mod(i - j, N), mod(j-i, N)))
                 if k > 1e-3 
                     K[i, j] = k
                 end
@@ -83,7 +86,8 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
     if bilayermodel == "wht"
         for i = 1:N
             for j = 1:N
-                k = kappa_wht(dx*(i - j))
+                # k = kappa_wht(dx*(i - j))
+                k = kappa_wht(dx*min(mod(i - j, N), mod(j - i, N)))
                 if k < -1e-3
                     K[i, j] = k
                 end
@@ -94,8 +98,8 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
 
     model = Model(Ipopt.Optimizer)
     @variables(model, begin
-       u[i = 1:N] >= cmin
-       v[i = 1:N] >= cmin
+       u[i = 1:N] >= cmin, (start=u0[i])
+       v[i = 1:N] >= cmin, (start=v0[i])
     end)
 
     if bilayermodel == "bap"

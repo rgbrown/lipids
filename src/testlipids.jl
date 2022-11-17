@@ -17,7 +17,7 @@ x, p, u, v, u0, v0 = Lipids.lipidbilayer(L, dx, lipidlength, c0, m, gamma=gamma,
 # that's centered at the first index, so do a shift of half the domain length to
 # put it back
 s = length(u) ÷ 2
-display(plotuv(x, u0, v0, p, title="initial conditions"))
-display(plotuv(x, circshift(u, s), circshift(v,s), p, title="m = $(m)"))
+display(Lipids.plotuv(x, u0, v0, p, title="initial conditions"))
+display(Lipids.plotuv(x, u, v, p, title="m = $(m)"))
 
 
