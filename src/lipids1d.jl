@@ -83,7 +83,19 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
             end
         end
     end
-    if bilayermodel == "wht"
+    if bilayermodel == "wht" 
+        for i = 1:N
+            for j = 1:N
+                # k = kappa_wht(dx*(i - j))
+                k = kappa_wht(dx*min(mod(i - j, N), mod(j - i, N)))
+                if k < -1e-3
+                    K[i, j] = k
+                end
+            end
+        end
+
+    end
+    if bilayermodel == "bw" 
         for i = 1:N
             for j = 1:N
                 # k = kappa_wht(dx*(i - j))
@@ -107,7 +119,8 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
             model,
             Min,
             sum(
-                u[i]*log(u[i]) + v[i]*log(v[i]) + alpha*(1 - u[i] - v[i]) * 
+                u[i]*log(u[i]) + v[i]*log(v[i]) + 
+                alpha*(1 - u[i] - v[i]) * 
                 sum(K[i, j]*(u[j] + v[j]) for j = 1:N if K[i, j] > 0.0)
                 for i in 1:N
             ) * dx,
@@ -118,7 +131,22 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
             model,
             Min, 
             sum(
+                u[i]*log(u[i]) + v[i]*log(v[i]) +
+                alpha*(1 - u[i] - v[i] - u[mod(i + p - 1, N) + 1] - v[mod(i - p - 1, N) + 1]) * 
+                sum(K[i, j]*
+                (1 - u[j] - v[j] - (1 - gamma)*u[mod(j + p - 1, N) + 1] - (1 - gamma)*v[mod(j - p - 1, N) + 1]) for j in 1:N if K[i, j] < 0.0)
+                for i in 1:N
+            ) * dx,
+        )
+    end
+    if bilayermodel == "bw"
+        @NLobjective(
+            model,
+            Min, 
+            sum(
                 u[i]*log(u[i]) + v[i]*log(v[i]) + 
+                (1 - u[i] - v[i] - u[mod(i + p - 1, N) + 1] - v[mod(i - p - 1, N) + 1]) * 
+                log(1 - u[i] - v[i] - u[mod(i + p - 1, N) + 1] - v[mod(i - p - 1, N) + 1]) + 
                 alpha*(1 - u[i] - v[i] - u[mod(i + p - 1, N) + 1] - v[mod(i - p - 1, N) + 1]) * 
                 sum(K[i, j]*
                 (1 - u[j] - v[j] - (1 - gamma)*u[mod(j + p - 1, N) + 1] - (1 - gamma)*v[mod(j - p - 1, N) + 1]) for j in 1:N if K[i, j] < 0.0)

@@ -5,11 +5,11 @@ L = 10
 c0 = 0.024
 m = 0.05*2*L 
 dx = 0.1 
-lipidlength = 2
+lipidlength = 2 
 cmin = 1e-5
 sigma=5
-bilayermodel="wht"
-gamma = 1 
+bilayermodel="bw"
+gamma = 1
 alpha = 3*2/(1 + gamma)
 x, p, u, v, u0, v0 = Lipids.lipidbilayer(L, dx, lipidlength, c0, m, gamma=gamma, alpha=alpha, sigma=sigma, bilayermodel=bilayermodel)
 
