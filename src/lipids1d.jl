@@ -1,5 +1,5 @@
 module Lipids
-export lipidbilayer, plotuv
+export lipidbilayer, plotuv, testlipids
 using Ipopt
 using JuMP
 using Plots
@@ -84,19 +84,7 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
             end
         end
     end
-    if bilayermodel == "wht" 
-        for i = 1:N
-            for j = 1:N
-                # k = kappa_wht(dx*(i - j))
-                k = kappa_wht(dx*min(mod(i - j, N), mod(j - i, N)))
-                if k < -1e-3
-                    K[i, j] = k
-                end
-            end
-        end
-
-    end
-    if bilayermodel == "bw" 
+    if bilayermodel == "wht" || bilayermodel == "bw"
         for i = 1:N
             for j = 1:N
                 # k = kappa_wht(dx*(i - j))
@@ -115,14 +103,21 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
        v[i = 1:N] >= cmin, (start=v0[i])
     end)
 
+    @expression(model, tails[i = 1:N], u[i] + v[i])
+    @expression(model, heads[i = 1:N], 
+        u[mod(i + p - 1, N) + 1] + v[mod(i - p - 1, N) + 1])
+    @expression(model, water[i = 1:N], 1 - heads[i] - tails[i])
+
     if bilayermodel == "bap"
         @NLobjective(
             model,
             Min,
             sum(
                 u[i]*log(u[i]) + v[i]*log(v[i]) + 
-                alpha*(1 - u[i] - v[i]) * 
-                sum(K[i, j]*(u[j] + v[j]) for j = 1:N if K[i, j] > 0.0)
+                alpha*(1 - tails[i]) * sum(
+                    K[i, j]*(tails[j]) 
+                    for j = 1:N if K[i, j] > 0.0
+                )
                 for i in 1:N
             ) * dx,
         )
@@ -133,9 +128,9 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
             Min, 
             sum(
                 u[i]*log(u[i]) + v[i]*log(v[i]) +
-                alpha*(1 - u[i] - v[i] - u[mod(i + p - 1, N) + 1] - v[mod(i - p - 1, N) + 1]) * 
-                sum(K[i, j]*
-                (1 - u[j] - v[j] - (1 - gamma)*u[mod(j + p - 1, N) + 1] - (1 - gamma)*v[mod(j - p - 1, N) + 1]) for j in 1:N if K[i, j] < 0.0)
+                alpha*water[i] * sum(K[i, j]* (water[j] + gamma*heads[j])
+                    for j in 1:N if K[i, j] < 0.0
+                )
                 for i in 1:N
             ) * dx,
         )
@@ -145,12 +140,11 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
             model,
             Min, 
             sum(
-                u[i]*log(u[i]) + v[i]*log(v[i]) + 
-                (1 - u[i] - v[i] - u[mod(i + p - 1, N) + 1] - v[mod(i - p - 1, N) + 1]) * 
-                log(1 - u[i] - v[i] - u[mod(i + p - 1, N) + 1] - v[mod(i - p - 1, N) + 1]) + 
-                alpha*(1 - u[i] - v[i] - u[mod(i + p - 1, N) + 1] - v[mod(i - p - 1, N) + 1]) * 
-                sum(K[i, j]*
-                (1 - u[j] - v[j] - (1 - gamma)*u[mod(j + p - 1, N) + 1] - (1 - gamma)*v[mod(j - p - 1, N) + 1]) for j in 1:N if K[i, j] < 0.0)
+                u[i]*log(u[i]) + v[i]*log(v[i]) + water[i]*log(water[i]) + 
+                alpha*water[i] * sum(
+                    K[i, j]* (water[j] + gamma*heads[j])
+                    for j in 1:N if K[i, j] < 0.0
+                )
                 for i in 1:N
             ) * dx,
         )
@@ -163,7 +157,7 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
     @constraint(
         model,
         [i = 1:N], 
-        u[i] + u[mod(i + p - 1, N) + 1] + v[i] + v[mod(i - p - 1, N) + 1] ≤ 1
+        heads[i] + tails[i] ≤ 1
     )
     optimize!(model)  
     println("""
@@ -173,5 +167,25 @@ function lipidbilayer(L, dx, lipidlength, c0, m;
     """)
 
     return x, p, value.(u)[:], value.(v)[:], u0, v0
+end
+
+function testlipids()
+    L = 10
+    c0 = 0.024
+    m = 0.05*2*L 
+    dx = 0.1 
+    lipidlength = 2 
+    cmin = 1e-5
+    sigma=5
+    bilayermodel="bw"
+    gamma = 1
+    alpha = 3*2/(1 + gamma)
+    for model in ("bw", "bap", "wht")
+        x, p, u, v, u0, v0 = lipidbilayer(
+            L, dx, lipidlength, c0, m, gamma=gamma, alpha=alpha, sigma=sigma, bilayermodel=model)
+    
+        display(plotuv(x, u0, v0, p, title="initial conditions"))
+        display(plotuv(x, u, v, p, title="model = $(model)"))
+    end
 end
 end
