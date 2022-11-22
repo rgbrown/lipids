@@ -48,15 +48,16 @@ Initialise problem
 `sigma`             Standard deviation of initial populations
 `uc`                Centre of initial u tail distribution
 `vc`                Centre of initial v tail distribution
-`bilayermodel`      "bap" or "wht"
+`bilayermodel`      "bap" or "wht" or "bw"
 
-Returns:
-    `A`, `b`        Inequality constraints. A'x <= b
-    `C`, `d`        Equality constraints. C'x = d
-    `f`             Objective function
-    `df`            Gradient function
-    `y0`            Feasible initial condition
-    `B`             Initial binding inequality constraints
+Returns
+
+`x`:                x coordinates of problem domain
+`p`:                lipid length in indices
+`u`:                u solution
+`v`:                v solution
+`u0`:               u initial condition
+`v0`:               v initial condition
 """
 function lipidbilayer(L, dx, lipidlength, c0, m; 
     cmin=1e-5, alpha=1,sigma= 5, uc = 0, vc = 0, gamma=0.7, bilayermodel="bap")
